@@ -11,7 +11,7 @@ import uuid
 
 import yaml
 
-from ai4eosc_cim_messenger import main as main_mod
+from ai4eosc_energy_accounting import main as main_mod
 
 STEP = 30
 
@@ -138,7 +138,9 @@ def test_allocation_vanishing_right_at_window_end_is_closed_next_run(
     config_path = _write_config(tmp_path, mimir_server, cim_server)
 
     # Run 1: single sample exactly at the window's end timestamp.
-    mimir_server.set_window_fn(lambda start, end: [_series(alloc_id, "ifca-ai4eosc", [[end, "5000000"]])])
+    mimir_server.set_window_fn(
+        lambda start, end: [_series(alloc_id, "ifca-ai4eosc", [[end, "5000000"]])]
+    )
     rc = main_mod.main(["--config", config_path])
     assert rc == 0
 
@@ -167,11 +169,19 @@ def test_allocation_vanishing_right_at_window_end_is_closed_next_run(
     assert alloc_id not in open_allocs
 
 
-def test_unknown_datacenter_falls_back_to_raw_label_for_owner(tmp_path, mimir_server, cim_server):
+def test_unknown_datacenter_falls_back_to_raw_label_for_owner(
+    tmp_path, mimir_server, cim_server
+):
     alloc_id = str(uuid.uuid4())
 
     def build(start, end):
-        return [_series(alloc_id, "some-other-dc", [[start, "1000000"], [start + STEP, "1000000"]])]
+        return [
+            _series(
+                alloc_id,
+                "some-other-dc",
+                [[start, "1000000"], [start + STEP, "1000000"]],
+            )
+        ]
 
     mimir_server.set_window_fn(build)
     config_path = _write_config(tmp_path, mimir_server, cim_server)
@@ -189,7 +199,13 @@ def test_file_sender_writes_payload_and_advances_pointer(tmp_path, mimir_server)
     alloc_id = str(uuid.uuid4())
 
     def build(start, end):
-        return [_series(alloc_id, "ifca-ai4eosc", [[start, "5000000"], [start + STEP, "5000000"]])]
+        return [
+            _series(
+                alloc_id,
+                "ifca-ai4eosc",
+                [[start, "5000000"], [start + STEP, "5000000"]],
+            )
+        ]
 
     mimir_server.set_window_fn(build)
     config_path = _write_config(tmp_path, mimir_server, sender={"type": "file"})
@@ -204,7 +220,9 @@ def test_file_sender_writes_payload_and_advances_pointer(tmp_path, mimir_server)
     assert (tmp_path / "lastrun").exists()
 
 
-def test_no_data_still_advances_pointer_and_exits_cleanly(tmp_path, mimir_server, cim_server):
+def test_no_data_still_advances_pointer_and_exits_cleanly(
+    tmp_path, mimir_server, cim_server
+):
     mimir_server.set_series([])
     config_path = _write_config(tmp_path, mimir_server, cim_server)
 
@@ -219,7 +237,13 @@ def test_failed_push_does_not_advance_pointer(tmp_path, mimir_server, cim_server
     alloc_id = str(uuid.uuid4())
 
     def build(start, end):
-        return [_series(alloc_id, "ifca-ai4eosc", [[start, "5000000"], [start + STEP, "5000000"]])]
+        return [
+            _series(
+                alloc_id,
+                "ifca-ai4eosc",
+                [[start, "5000000"], [start + STEP, "5000000"]],
+            )
+        ]
 
     mimir_server.set_window_fn(build)
     cim_server.set_fail(True)

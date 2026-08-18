@@ -4,4 +4,4 @@
 # Everything the script needs/produces (config.yaml, the pointer file,
 # sender output, logs) lives inside the project directory - only the
 # path below needs to point at wherever you cloned it.
-0 */6 * * * cd /path/to/ai4eosc-cim-messenger && .venv/bin/python -m ai4eosc_cim_messenger.main >> var/cron.log 2>&1
+0 */6 * * * cd /path/to/ai4eosc-energy-accounting && .venv/bin/python -m ai4eosc_energy_accounting.main >> var/cron.log 2>&1

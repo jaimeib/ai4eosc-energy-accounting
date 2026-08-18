@@ -11,12 +11,14 @@ import os
 import typing
 
 if typing.TYPE_CHECKING:
-    from ai4eosc_cim_messenger import record as record_mod
+    from ai4eosc_energy_accounting import record as record_mod
 
 LOG = logging.getLogger(__name__)
 
 
-def push_records(path: str, records: typing.Sequence["record_mod.EnergyRecord"]) -> None:
+def push_records(
+    path: str, records: typing.Sequence["record_mod.EnergyRecord"]
+) -> None:
     """Append the batch of records (as CIM would receive it) to ``path``."""
     if not records:
         return

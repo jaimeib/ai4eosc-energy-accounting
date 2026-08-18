@@ -22,15 +22,15 @@ import os
 import sys
 import uuid
 
-from ai4eosc_cim_messenger import cim_client
-from ai4eosc_cim_messenger import config as config_mod
-from ai4eosc_cim_messenger import file_client
-from ai4eosc_cim_messenger import mimir
-from ai4eosc_cim_messenger import pointer as pointer_mod
-from ai4eosc_cim_messenger import record as record_mod
-from ai4eosc_cim_messenger import state as state_mod
+from ai4eosc_energy_accounting import cim_client
+from ai4eosc_energy_accounting import config as config_mod
+from ai4eosc_energy_accounting import file_client
+from ai4eosc_energy_accounting import mimir
+from ai4eosc_energy_accounting import pointer as pointer_mod
+from ai4eosc_energy_accounting import record as record_mod
+from ai4eosc_energy_accounting import state as state_mod
 
-LOG = logging.getLogger("ai4eosc_cim_messenger")
+LOG = logging.getLogger("ai4eosc_energy_accounting")
 
 # Tolerance, in multiples of the query step, used to decide whether an
 # allocation's last sample falling short of the window end means it
@@ -296,7 +296,11 @@ def run(cfg, dry_run: bool) -> int:
         )
         return 0
 
-    LOG.info("Extracting container energy accounting for [%s -> %s]", extract_from, extract_to)
+    LOG.info(
+        "Extracting container energy accounting for [%s -> %s]",
+        extract_from,
+        extract_to,
+    )
 
     client = mimir.MimirClient(
         cfg.mimir.endpoint,
@@ -341,7 +345,9 @@ def run(cfg, dry_run: bool) -> int:
         LOG.info("No records to send")
 
     pointer_mod.write_pointer(cfg.pointer.file, extract_to)
-    state_mod.write_open_allocations(cfg.pointer.open_allocations_file, open_allocations)
+    state_mod.write_open_allocations(
+        cfg.pointer.open_allocations_file, open_allocations
+    )
     return 0
 
 

@@ -11,7 +11,7 @@ import typing
 
 import requests
 
-from ai4eosc_cim_messenger import record as record_mod
+from ai4eosc_energy_accounting import record as record_mod
 
 LOG = logging.getLogger(__name__)
 

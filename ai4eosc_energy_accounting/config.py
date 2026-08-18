@@ -97,7 +97,7 @@ class Config:
     sender: SenderConfig
     dry_run: bool = False
     log_level: str = "INFO"
-    log_file: typing.Optional[str] = local_path("ai4eosc-cim-messenger.log")
+    log_file: typing.Optional[str] = local_path("ai4eosc-energy-accounting.log")
 
 
 def _env_override(value: typing.Optional[str], env_var: str) -> typing.Optional[str]:

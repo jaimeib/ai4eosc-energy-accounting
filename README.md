@@ -1,4 +1,4 @@
-# ai4eosc-cim-messenger
+# ai4eosc-energy-accounting
 
 Sends AI4EOSC/iMagine PaaS container energy accounting to GreenDIGIT CIM,
 every 6h via cron. It reports containers the same way [cASO](https://github.com/IFCA-Advanced-Computing/caso)
@@ -102,20 +102,20 @@ from. `--config` itself defaults to `<project dir>/config.yaml`.
 Try it without sending anything:
 
 ```bash
-.venv/bin/python -m ai4eosc_cim_messenger.main --config config.yaml --dry-run
+.venv/bin/python -m ai4eosc_energy_accounting.main --config config.yaml --dry-run
 ```
 
 See what a real run would send, without touching CIM, by writing to a file instead:
 
 ```bash
-.venv/bin/python -m ai4eosc_cim_messenger.main --config config.yaml --sender file --output-file var/records.jsonl
+.venv/bin/python -m ai4eosc_energy_accounting.main --config config.yaml --sender file --output-file var/records.jsonl
 cat var/records.jsonl
 ```
 
 (This still advances the pointer, same as a normal run — only the destination changes.
 Use `--dry-run` instead if you don't want the pointer to move at all.)
 
-Then install the cron job (see `ai4eosc-cim-messenger.cron` for a ready-to-edit line —
+Then install the cron job (see `ai4eosc-energy-accounting.cron` for a ready-to-edit line —
 just point the `cd` at wherever you cloned this):
 
 ```bash

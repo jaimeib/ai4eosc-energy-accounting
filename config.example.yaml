@@ -53,4 +53,4 @@ sender:
 
 dry_run: false
 log_level: "INFO"
-# log_file: null   # set to null to log to stdout only instead of var/ai4eosc-cim-messenger.log
+# log_file: null   # set to null to log to stdout only instead of var/ai4eosc-energy-accounting.log
