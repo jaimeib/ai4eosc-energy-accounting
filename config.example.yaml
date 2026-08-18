@@ -1,0 +1,56 @@
+# Copy to config.yaml and fill in the secrets, or leave them out here and
+# set them via environment variables instead (MIMIR_USER, MIMIR_PASSWORD,
+# CIM_EMAIL, CIM_PASSWORD). config.yaml is gitignored; this example file
+# is not, so never put real credentials in this file.
+#
+# chmod 600 config.yaml once it contains real credentials.
+
+mimir:
+  endpoint: "https://mimir.k8s.cloud.ai4eosc.eu/prometheus"
+  user: "mimir-user"
+  password: "mimir-password"
+  query: "sum by(container_label_com_hashicorp_nomad_alloc_id, datacenter) (scaph_process_power_consumption_microwatts)"
+  alloc_id_label: "container_label_com_hashicorp_nomad_alloc_id"
+  datacenter_label: "datacenter"
+  step_seconds: 30
+  verify_ssl: true
+
+cim:
+  base_url: "https://greendigit-cim.sztaki.hu"
+  email: "you@example.org"
+  password: "cim-password"
+  verify_ssl: true
+
+accounting:
+  site_name: "IFCA-LCG2"         # SiteName reported to CIM - fixed for now
+  cloud_type: "container (PaaS)" # CloudType - marks these as PaaS execution units
+  # iMagine is a deployment of the AI4EOSC platform, not a separate one,
+  # so CloudComputeService is fixed - the `datacenter` label only
+  # distinguishes the deployment via Owner below.
+  compute_service: "AI4EOSC"
+  cpu_normalization_factor: 2.03 # cASO's CPU-benchmark normalization factor, fixed
+  # Maps the `datacenter` Prometheus label to the Owner reported to CIM
+  # (the deployment's domain name).
+  owner_map:
+    ifca-ai4eosc: "ai4eosc.eu"
+    ifca-imagine: "imagine-ai.eu"
+
+# pointer.file, pointer.open_allocations_file, sender.file_path and
+# log_file all default to living under <project directory>/var/ (created
+# automatically) regardless of the current working directory the script
+# is run from - nothing outside the project needs to exist for this to
+# work. Uncomment below to override.
+
+pointer:
+  # file: "/absolute/or/relative/path/to/lastrun"
+  # open_allocations_file: "/absolute/or/relative/path/to/open_allocations.json"
+  initial_lookback_hours: 6   # window covered on the very first run
+  query_lag_seconds: 60       # safety margin, avoids querying not-yet-scraped data
+
+sender:
+  type: "cim"    # "cim" to push to GreenDIGIT CIM, or "file" to write to file_path instead (testing)
+  # file_path: "/absolute/or/relative/path/to/records.jsonl"
+
+dry_run: false
+log_level: "INFO"
+# log_file: null   # set to null to log to stdout only instead of var/ai4eosc-cim-messenger.log
