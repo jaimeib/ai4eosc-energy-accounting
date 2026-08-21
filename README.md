@@ -27,7 +27,15 @@ IaaS Execution Units:
 3. For each allocation, converts its summed microwatt samples into Wh
    (treating each sample as constant power for one `step_seconds`
    interval), and records the timestamp of its first and last sample in
-   the window.
+   the window. Optionally, if `mimir.gpu_query` is configured, also queries
+   GPU power (`DCGM_FI_DEV_POWER_USAGE`, in Watts, joined against
+   `nomad_gpu_allocation_info` to attribute each GPU to a Nomad
+   `alloc_id`), converts it to Wh the same way, and adds it into the same
+   allocation's total *before* the CPU normalization factor is applied
+   below (the factor already accounts for both CPU and GPU per cASO's
+   benchmark methodology). Disabled by default — not every deployment
+   scrapes DCGM / the GPU allocation mapper exporter; see
+   `config.example.yaml`.
 4. Builds one `EnergyRecord` per Nomad allocation:
    - `ExecUnitID` = the allocation ID (already a UUID).
    - `StartExecTime`/`EndExecTime` = the allocation's first/last sample

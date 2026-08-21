@@ -7,13 +7,20 @@ the fixed fields (including CloudComputeService), and both senders
 """
 
 import json
+import math
 import uuid
 
 import yaml
 
+from ai4eosc_energy_accounting import config as config_mod
 from ai4eosc_energy_accounting import main as main_mod
 
 STEP = 30
+
+GPU_QUERY = (
+    "sum by(alloc_id, datacenter) (DCGM_FI_DEV_POWER_USAGE "
+    "* on(UUID, instance) group_left(alloc_id) nomad_gpu_allocation_info)"
+)
 
 
 def _write_config(tmp_path, mimir_server, cim_server=None, **overrides):
@@ -58,6 +65,13 @@ def _series(alloc_id, datacenter, values):
     }
 
 
+def _gpu_series(alloc_id, datacenter, values):
+    return {
+        "metric": {"alloc_id": alloc_id, "datacenter": datacenter},
+        "values": values,
+    }
+
+
 def test_running_allocation_reports_fixed_and_derived_fields(
     tmp_path, mimir_server, cim_server
 ):
@@ -91,6 +105,78 @@ def test_running_allocation_reports_fixed_and_derived_fields(
     assert rec["EnergyWh"] > 0
     assert rec["CpuDuration_s"] == rec["WallClockTime_s"]
     assert rec["Work"] == rec["CpuDuration_s"] / rec["EnergyWh"]
+
+
+def test_gpu_energy_is_summed_into_cpu_energy_before_normalization(
+    tmp_path, mimir_server, cim_server
+):
+    alloc_id = str(uuid.uuid4())
+    sample_count = {}
+
+    def cpu_build(start, end):
+        values = []
+        t = start
+        while t <= end:
+            values.append([t, "5000000"])  # 5W
+            t += STEP
+        sample_count["n"] = len(values)
+        return [_series(alloc_id, "ifca-imagine", values)]
+
+    def gpu_build(start, end):
+        values = []
+        t = start
+        while t <= end:
+            values.append([t, "20"])  # 20W
+            t += STEP
+        return [_gpu_series(alloc_id, "ifca-imagine", values)]
+
+    mimir_server.set_query_series(config_mod.MimirConfig.query, cpu_build)
+    mimir_server.set_query_series(GPU_QUERY, gpu_build)
+    config_path = _write_config(
+        tmp_path, mimir_server, cim_server, mimir={"gpu_query": GPU_QUERY}
+    )
+
+    rc = main_mod.main(["--config", config_path])
+    assert rc == 0
+
+    [rec] = cim_server.payload
+    n = sample_count["n"]
+    # 5W (CPU) + 20W (GPU) per sample, then the fixed CPU normalization factor.
+    expected_energy_wh = n * (STEP / 3600) * (5 + 20) * 2.03
+    assert math.isclose(rec["EnergyWh"], expected_energy_wh, rel_tol=1e-9)
+
+
+def test_gpu_query_unset_ignores_gpu_metrics(tmp_path, mimir_server, cim_server):
+    """Regression guard: with gpu_query left at its default (disabled), a
+    GPU series present in Mimir under a *different* query string must not
+    be picked up -- only the configured CPU query is ever requested."""
+    alloc_id = str(uuid.uuid4())
+    sample_count = {}
+
+    def cpu_build(start, end):
+        values = []
+        t = start
+        while t <= end:
+            values.append([t, "5000000"])  # 5W
+            t += STEP
+        sample_count["n"] = len(values)
+        return [_series(alloc_id, "ifca-imagine", values)]
+
+    mimir_server.set_query_series(config_mod.MimirConfig.query, cpu_build)
+    # Registered but never requested, since gpu_query is unset.
+    mimir_server.set_query_series(
+        GPU_QUERY, lambda start, end: [_gpu_series(alloc_id, "ifca-imagine", [[start, "20"]])]
+    )
+    config_path = _write_config(tmp_path, mimir_server, cim_server)
+
+    rc = main_mod.main(["--config", config_path])
+    assert rc == 0
+
+    [rec] = cim_server.payload
+    n = sample_count["n"]
+    # No GPU contribution: purely CPU energy_wh (5W samples) * normalization.
+    expected_energy_wh = n * (STEP / 3600) * 5 * 2.03
+    assert math.isclose(rec["EnergyWh"], expected_energy_wh, rel_tol=1e-9)
 
 
 def test_allocation_stopped_mid_window_is_finished_and_bounded(

@@ -23,7 +23,7 @@ def mimir_server():
     Tests set ``server.handler.series`` (and optionally ``.window_fn``) before
     issuing requests; the handler builds the query_range response from it.
     """
-    state = {"series": [], "window_fn": None}
+    state = {"series": [], "window_fn": None, "by_query": {}}
     port = _free_port()
 
     class Handler(BaseHTTPRequestHandler):
@@ -34,8 +34,12 @@ def mimir_server():
             qs = parse_qs(urlparse(self.path).query)
             start = float(qs["start"][0])
             end = float(qs["end"][0])
+            query = qs["query"][0]
 
-            build = state["window_fn"] or (lambda start, end: state["series"])
+            if query in state["by_query"]:
+                build = state["by_query"][query]
+            else:
+                build = state["window_fn"] or (lambda start, end: state["series"])
             result = build(start, end)
 
             body = {
@@ -62,6 +66,17 @@ def mimir_server():
 
         def set_window_fn(self, fn):
             state["window_fn"] = fn
+
+        def set_query_series(self, query, series_or_fn):
+            """Register a response for an exact PromQL ``query`` string,
+            overriding the default series/window_fn for that query only.
+            ``series_or_fn`` is either a fixed series list or a
+            ``(start, end) -> series`` callable, same as set_series/
+            set_window_fn."""
+            if callable(series_or_fn):
+                state["by_query"][query] = series_or_fn
+            else:
+                state["by_query"][query] = lambda start, end: series_or_fn
 
     yield Server()
     httpd.shutdown()

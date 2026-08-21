@@ -12,6 +12,23 @@ mimir:
   query: "sum by(container_label_com_hashicorp_nomad_alloc_id, datacenter) (scaph_process_power_consumption_microwatts)"
   alloc_id_label: "container_label_com_hashicorp_nomad_alloc_id"
   datacenter_label: "datacenter"
+  # Optional: fold GPU power into the same per-allocation Wh total as CPU,
+  # before the CPU normalization factor below is applied. Requires DCGM
+  # (DCGM_FI_DEV_POWER_USAGE, in Watts) and a Nomad GPU allocation mapper
+  # exporter (nomad_gpu_allocation_info, mapping a GPU UUID to alloc_id) to
+  # both be scraped -- not every deployment has these, so this is opt-in
+  # (empty query below disables it). Only GPUs with a direct UUID mapping
+  # are matched; nomad_gpu_allocation_info rows with UUID="all" (the whole
+  # node reported at once, no per-GPU allocation) are intentionally not
+  # matched -- not expected to occur since GPUs are allocated exclusively
+  # per container.
+  # gpu_query: >
+  #   sum by(alloc_id, datacenter) (
+  #     DCGM_FI_DEV_POWER_USAGE
+  #     * on(UUID, instance) group_left(alloc_id)
+  #     nomad_gpu_allocation_info
+  #   )
+  # gpu_alloc_id_label: "alloc_id"
   step_seconds: 30
   verify_ssl: true
 

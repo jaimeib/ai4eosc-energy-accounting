@@ -8,6 +8,13 @@ CIM (or to a local file, see ``sender.type``, for testing). Meant to be run
 periodically (e.g. every 6h via cron); a pointer file tracks the end of the
 last successfully-sent window so each run only covers new data.
 
+Optionally, when ``mimir.gpu_query`` is configured, GPU power
+(``DCGM_FI_DEV_POWER_USAGE``, joined against ``nomad_gpu_allocation_info`` to
+attribute it to a Nomad alloc_id) is folded into the same per-allocation Wh
+total as CPU, before the CPU normalization factor is applied -- see
+``config.example.yaml`` for the query. Disabled by default (empty query),
+since not every deployment scrapes DCGM / the alloc-mapper exporter.
+
 Containers are reported the same way cASO reports VMs, but as Cloud PaaS
 Execution Units rather than Cloud IaaS Execution Units (see
 ``accounting.cloud_type`` / ``accounting.compute_service`` in the
@@ -52,6 +59,31 @@ def _split_time_chunks(start, end, step_seconds, max_points):
         start = chunk_end + datetime.timedelta(seconds=step_seconds)
 
 
+def _accumulate_series(metrics, result, alloc_id_label, datacenter_label, factor):
+    """Fold a Mimir query_range result into ``metrics``, keyed by
+    ``(alloc_id, datacenter)``, converting each instantaneous sample to Wh
+    via ``factor`` (a Riemann-sum approximation: each sample represents
+    ``step_seconds`` of constant power). Used for both the CPU (scaphandre)
+    and, optionally, GPU (DCGM) queries, so their Wh land in the same
+    accumulator ahead of CPU normalization in ``build_records``.
+    """
+    for series in result:
+        metric = series.get("metric", {})
+        alloc_id = metric.get(alloc_id_label)
+        datacenter = metric.get(datacenter_label)
+        if not alloc_id or not datacenter:
+            continue
+        entry = metrics.setdefault(
+            (alloc_id, datacenter), {"energy_wh": 0.0, "first_ts": None, "last_ts": None}
+        )
+        for ts, value in series.get("values", []):
+            entry["energy_wh"] += float(value) * factor
+            if entry["first_ts"] is None or ts < entry["first_ts"]:
+                entry["first_ts"] = ts
+            if entry["last_ts"] is None or ts > entry["last_ts"]:
+                entry["last_ts"] = ts
+
+
 def collect_metrics(client, cfg, extract_from, extract_to):
     """Query Mimir and return per-allocation energy and sample time bounds.
 
@@ -64,7 +96,9 @@ def collect_metrics(client, cfg, extract_from, extract_to):
     # scaph_process_power_consumption_microwatts is an instantaneous power
     # sample, not a counter, so energy is approximated as a Riemann sum:
     # each sample represents `step_seconds` of constant power.
-    factor = cfg.step_seconds / 3600 / 1_000_000  # microwatt-seconds -> Wh
+    cpu_factor = cfg.step_seconds / 3600 / 1_000_000  # microwatt-seconds -> Wh
+    # DCGM_FI_DEV_POWER_USAGE is reported in Watts (not microwatts).
+    gpu_factor = cfg.step_seconds / 3600  # watt-seconds -> Wh
 
     metrics: dict = {}
     for chunk_start, chunk_end in _split_time_chunks(
@@ -72,22 +106,15 @@ def collect_metrics(client, cfg, extract_from, extract_to):
     ):
         LOG.debug("Querying Mimir [%s -> %s]", chunk_start, chunk_end)
         result = client.query_range(cfg.query, chunk_start, chunk_end, cfg.step_seconds)
-        for series in result:
-            metric = series.get("metric", {})
-            alloc_id = metric.get(cfg.alloc_id_label)
-            datacenter = metric.get(cfg.datacenter_label)
-            if not alloc_id or not datacenter:
-                continue
-            key = (alloc_id, datacenter)
-            entry = metrics.setdefault(
-                key, {"energy_wh": 0.0, "first_ts": None, "last_ts": None}
+        _accumulate_series(metrics, result, cfg.alloc_id_label, cfg.datacenter_label, cpu_factor)
+
+        if cfg.gpu_query:
+            gpu_result = client.query_range(
+                cfg.gpu_query, chunk_start, chunk_end, cfg.step_seconds
             )
-            for ts, value in series.get("values", []):
-                entry["energy_wh"] += float(value) * factor
-                if entry["first_ts"] is None or ts < entry["first_ts"]:
-                    entry["first_ts"] = ts
-                if entry["last_ts"] is None or ts > entry["last_ts"]:
-                    entry["last_ts"] = ts
+            _accumulate_series(
+                metrics, gpu_result, cfg.gpu_alloc_id_label, cfg.datacenter_label, gpu_factor
+            )
 
     return metrics
 

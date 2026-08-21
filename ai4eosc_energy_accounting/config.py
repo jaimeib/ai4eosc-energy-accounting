@@ -35,6 +35,12 @@ class MimirConfig:
     )
     alloc_id_label: str = "container_label_com_hashicorp_nomad_alloc_id"
     datacenter_label: str = "datacenter"
+    # Optional: GPU power (DCGM_FI_DEV_POWER_USAGE, in Watts) joined against
+    # nomad_gpu_allocation_info to attribute it to a Nomad alloc_id. Empty
+    # string disables GPU accounting (not every deployment scrapes DCGM /
+    # the alloc-mapper exporter). See config.example.yaml for the query.
+    gpu_query: str = ""
+    gpu_alloc_id_label: str = "alloc_id"
     step_seconds: int = 30
     verify_ssl: bool = True
     max_points_per_query: int = 11_000
@@ -129,6 +135,10 @@ def load_config(
         query=mimir_raw.get("query", MimirConfig.query),
         alloc_id_label=mimir_raw.get("alloc_id_label", MimirConfig.alloc_id_label),
         datacenter_label=mimir_raw.get("datacenter_label", MimirConfig.datacenter_label),
+        gpu_query=mimir_raw.get("gpu_query", MimirConfig.gpu_query),
+        gpu_alloc_id_label=mimir_raw.get(
+            "gpu_alloc_id_label", MimirConfig.gpu_alloc_id_label
+        ),
         step_seconds=int(mimir_raw.get("step_seconds", 30)),
         verify_ssl=bool(mimir_raw.get("verify_ssl", True)),
         max_points_per_query=int(mimir_raw.get("max_points_per_query", 11_000)),
