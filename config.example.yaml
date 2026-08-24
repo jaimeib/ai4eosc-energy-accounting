@@ -63,6 +63,12 @@ pointer:
   # open_allocations_file: "/absolute/or/relative/path/to/open_allocations.json"
   initial_lookback_hours: 6   # window covered on the very first run
   query_lag_seconds: 60       # safety margin, avoids querying not-yet-scraped data
+  # If the cron/scheduler can fire a few seconds late, set this to the
+  # cron interval in seconds (e.g. 21600 for "every 6h") so the window end
+  # is floored to the intended UTC boundary (00:00/06:00/12:00/18:00 for
+  # 21600) instead of the exact moment the process happened to start.
+  # 0 (default) disables alignment.
+  align_seconds: 0
 
 sender:
   type: "cim"    # "cim" to push to GreenDIGIT CIM, or "file" to write to file_path instead (testing)

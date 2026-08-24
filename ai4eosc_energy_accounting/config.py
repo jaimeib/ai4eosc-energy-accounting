@@ -84,6 +84,13 @@ class PointerConfig:
     open_allocations_file: str = local_path("open_allocations.json")
     initial_lookback_hours: int = 6
     query_lag_seconds: int = 60
+    # If set, the window end ("now") is floored to the nearest multiple of
+    # this many seconds since UTC midnight before subtracting
+    # query_lag_seconds -- so a run a few seconds late (cron/scheduler
+    # jitter) still closes its window at the intended boundary (e.g. 21600
+    # for 6h keeps windows ending at 00:00/06:00/12:00/18:00 UTC regardless
+    # of exactly when the process started). 0 disables alignment.
+    align_seconds: int = 0
 
 
 @dataclasses.dataclass
@@ -173,6 +180,7 @@ def load_config(
         ),
         initial_lookback_hours=int(pointer_raw.get("initial_lookback_hours", 6)),
         query_lag_seconds=int(pointer_raw.get("query_lag_seconds", 60)),
+        align_seconds=int(pointer_raw.get("align_seconds", 0)),
     )
 
     sender = SenderConfig(

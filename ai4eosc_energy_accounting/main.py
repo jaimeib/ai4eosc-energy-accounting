@@ -308,8 +308,21 @@ def setup_logging(cfg):
     )
 
 
+def _align_down(when, align_seconds):
+    """Floor ``when`` to the nearest multiple of ``align_seconds`` since UTC
+    midnight (e.g. 21600 for 6h keeps boundaries at 00:00/06:00/12:00/18:00
+    UTC regardless of scheduler jitter)."""
+    if not align_seconds:
+        return when
+    midnight = when.replace(hour=0, minute=0, second=0, microsecond=0)
+    elapsed = (when - midnight).total_seconds()
+    return midnight + datetime.timedelta(seconds=elapsed - (elapsed % align_seconds))
+
+
 def run(cfg, dry_run: bool) -> int:
-    now = datetime.datetime.now(datetime.timezone.utc)
+    now = _align_down(
+        datetime.datetime.now(datetime.timezone.utc), cfg.pointer.align_seconds
+    )
     extract_to = now - datetime.timedelta(seconds=cfg.pointer.query_lag_seconds)
     extract_from = pointer_mod.read_pointer(
         cfg.pointer.file, cfg.pointer.initial_lookback_hours
