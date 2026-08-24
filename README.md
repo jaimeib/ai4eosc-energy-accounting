@@ -8,10 +8,7 @@
 
 # ai4eosc-energy-accounting
 
-Sends AI4EOSC/iMagine PaaS container energy accounting to GreenDIGIT CIM,
-every 6h via cron. It reports containers the same way [cASO](https://github.com/IFCA-Advanced-Computing/caso)
-reports VMs to CIM, but as Cloud **PaaS** Execution Units instead of Cloud
-IaaS Execution Units:
+Sends AI4EOSC/iMagine PaaS container energy accounting records to GreenDIGIT Environmental Impact Metric Publication System (EIMPS), throught the Common Information Model (CIM) API. Designed to run every 6h via cron. It reports containers the same way [cASO](https://github.com/IFCA-Advanced-Computing/caso) reports VMs to CIM, but as Cloud **PaaS** Execution Units instead of Cloud IaaS Execution Units:
 
 |                       | VMs (cASO)               | Containers (this tool)                                                                                                                                                                                      |
 | --------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
