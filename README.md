@@ -10,6 +10,8 @@
 
 Sends AI4EOSC/iMagine PaaS container energy accounting records to GreenDIGIT Environmental Impact Metric Publication System (EIMPS), throught the Common Information Model (CIM) API. Designed to run every 6h via cron. It reports containers the same way [cASO](https://github.com/IFCA-Advanced-Computing/caso) reports VMs to CIM, but as Cloud **PaaS** Execution Units instead of Cloud IaaS Execution Units:
 
+This tool never talks to Nomad (the orchestrator behind the AI4EOSC/iMagine platform) directly: it only reads the container power metrics already collected in Mimir/Prometheus and exports them. This is a deliberate boundary, not an oversight, but it is also the root of the limitations called out below, since without querying Nomad itself there's no independent CPU-usage source per allocation (see `CpuDuration_s` in step 4) and no allocation-lifecycle event to know exactly when a container stopped (hence the sample-gap heuristic in step 4/6 and the *Known limitation* section).
+
 |                       | VMs (cASO)               | Containers (this tool)                                                                                                                                                                                      |
 | --------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `CloudType`           | `caso/5.2.0 (OpenStack)` | `container (PaaS)`                                                                                                                                                                                          |
@@ -62,11 +64,17 @@ Sends AI4EOSC/iMagine PaaS container energy accounting records to GreenDIGIT Env
       computed the same way as cASO: `CpuDuration_s / EnergyWh`.
 5. Sends the batch via `sender.type`:
     - `"cim"` (default): bearer-token authenticated POST to CIM
-      (`/gd-cim-api/v1/token` then `/gd-cim-api/v1/submit` — identical flow
+      (`/gd-cim-api/v1/token` then `/gd-cim-api/v1/submit`, identical flow
       to cASO's `greendigit_cim` messenger).
     - `"file"`: appends the same JSON payload to `sender.file_path`
       instead, for testing/inspecting what would be sent without touching
       CIM.
+
+   Both this and the Mimir query in step 2 go through a shared
+   `requests.Session` (`ai4eosc_energy_accounting/http.py`) that retries
+   transient failures (connection errors, `429`/`5xx`) with backoff, so a
+   brief network blip mid-run doesn't fail the whole run and wait for the
+   next cron cycle.
 6. Before sending, checks which allocations the _previous_ run reported as
    still running (`var/open_allocations.json`) but that produced zero
    samples in this run's window at all — meaning they stopped sometime

@@ -4,7 +4,7 @@ import datetime
 import logging
 import typing
 
-import requests
+from ai4eosc_energy_accounting import http as http_mod
 
 LOG = logging.getLogger(__name__)
 
@@ -28,6 +28,7 @@ class MimirClient:
         self.auth = (user, password) if user else None
         self.verify_ssl = verify_ssl
         self.timeout = timeout
+        self.session = http_mod.session_with_retries()
 
     def query_range(
         self,
@@ -44,7 +45,7 @@ class MimirClient:
             "end": end.timestamp(),
             "step": f"{step_seconds}s",
         }
-        resp = requests.get(
+        resp = self.session.get(
             url,
             params=params,
             auth=self.auth,
