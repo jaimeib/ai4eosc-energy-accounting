@@ -23,14 +23,21 @@ This tool never talks to Nomad (the orchestrator behind the AI4EOSC/iMagine plat
 
 1. Reads the pointer file (last successfully-sent instant). On the very
    first run, defaults to `now - initial_lookback_hours`.
-2. Queries Mimir (`GET {endpoint}/api/v1/query_range`) with basic auth for:
+2. Works out the window end: with `pointer.align_seconds` set (recommended,
+   see `config.example.yaml`), it's the most recent aligned UTC boundary
+   (e.g. 00:00/06:00/12:00/18:00 for the recommended 21600), as long as
+   that boundary is already at least `query_lag_seconds` in the past
+   (otherwise the run does nothing this time, see *Setup* for the matching
+   cron delay); without alignment, it's simply `now - query_lag_seconds`.
+   Then queries Mimir (`GET {endpoint}/api/v1/query_range`) with basic auth
+   for:
     ```
     sum by(container_label_com_hashicorp_nomad_alloc_id, datacenter) (scaph_process_power_consumption_microwatts)
     ```
-    over `[pointer, now - query_lag_seconds]`, at `step_seconds` resolution
-    (chunked if the window is large, to stay under Mimir's per-query point
-    limit). `datacenter` is kept in the `sum by(...)` so each series stays
-    tagged with the platform it belongs to (`ifca-ai4eosc` / `ifca-imagine`).
+    over `[pointer, window end]`, at `step_seconds` resolution (chunked if
+    the window is large, to stay under Mimir's per-query point limit).
+    `datacenter` is kept in the `sum by(...)` so each series stays tagged
+    with the platform it belongs to (`ifca-ai4eosc` / `ifca-imagine`).
 3. For each allocation, converts its summed microwatt samples into Wh
    (treating each sample as constant power for one `step_seconds`
    interval), and records the timestamp of its first and last sample in
@@ -136,8 +143,11 @@ cat var/records.jsonl
 (This still advances the pointer, same as a normal run — only the destination changes.
 Use `--dry-run` instead if you don't want the pointer to move at all.)
 
-Then install the cron job (see `ai4eosc-energy-accounting.cron` for a ready-to-edit line —
-just point the `cd` at wherever you cloned this):
+Then install the cron job (see `ai4eosc-energy-accounting.cron` for a ready-to-edit line, just
+point the `cd` at wherever you cloned this). With the recommended `pointer.align_seconds: 21600`,
+schedule it 5 minutes past each 6h UTC mark rather than right on it, so the boundary it aligns to
+is already comfortably past `query_lag_seconds` by the time it runs (the shipped `.cron` file
+already does this: `5 0,6,12,18 * * *`):
 
 ```bash
 crontab -e

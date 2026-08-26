@@ -319,11 +319,46 @@ def _align_down(when, align_seconds):
     return midnight + datetime.timedelta(seconds=elapsed - (elapsed % align_seconds))
 
 
+def _resolve_extract_to(now, align_seconds, query_lag_seconds):
+    """Return the window end to use for this run, or ``None`` if it isn't
+    safely queryable yet.
+
+    With ``align_seconds`` set, the window end is the aligned boundary
+    itself (so every StartExecTime/EndExecTime lands on a clean mark, e.g.
+    00:00/06:00/12:00/18:00 UTC), and ``query_lag_seconds`` stops being a
+    fixed offset subtracted from it: instead it's the minimum time that
+    boundary must already be in the past before this run trusts Mimir to
+    have scraped it. The run is expected to be scheduled with a matching
+    delay after each boundary (e.g. ``5 0,6,12,18 * * *`` -- 5 minutes
+    past each 6h mark) so this check normally just passes; it only kicks
+    in as a safety net (an early manual run, scheduler misconfiguration).
+
+    Without alignment (``align_seconds`` = 0), falls back to the previous
+    behaviour: the window always ends ``query_lag_seconds`` before now.
+    """
+    if not align_seconds:
+        return now - datetime.timedelta(seconds=query_lag_seconds)
+
+    extract_to = _align_down(now, align_seconds)
+    if (now - extract_to).total_seconds() < query_lag_seconds:
+        return None
+    return extract_to
+
+
 def run(cfg, dry_run: bool) -> int:
-    now = _align_down(
-        datetime.datetime.now(datetime.timezone.utc), cfg.pointer.align_seconds
+    now = datetime.datetime.now(datetime.timezone.utc)
+    extract_to = _resolve_extract_to(
+        now, cfg.pointer.align_seconds, cfg.pointer.query_lag_seconds
     )
-    extract_to = now - datetime.timedelta(seconds=cfg.pointer.query_lag_seconds)
+    if extract_to is None:
+        LOG.info(
+            "Nothing to do: the aligned window boundary hasn't been in the "
+            "past for query_lag_seconds (%ds) yet -- schedule this run with "
+            "more delay after each align_seconds boundary",
+            cfg.pointer.query_lag_seconds,
+        )
+        return 0
+
     extract_from = pointer_mod.read_pointer(
         cfg.pointer.file, cfg.pointer.initial_lookback_hours
     )

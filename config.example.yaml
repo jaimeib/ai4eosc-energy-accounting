@@ -62,13 +62,22 @@ pointer:
   # file: "/absolute/or/relative/path/to/lastrun"
   # open_allocations_file: "/absolute/or/relative/path/to/open_allocations.json"
   initial_lookback_hours: 6   # window covered on the very first run
-  query_lag_seconds: 60       # safety margin, avoids querying not-yet-scraped data
-  # If the cron/scheduler can fire a few seconds late, set this to the
-  # cron interval in seconds (e.g. 21600 for "every 6h") so the window end
-  # is floored to the intended UTC boundary (00:00/06:00/12:00/18:00 for
-  # 21600) instead of the exact moment the process happened to start.
-  # 0 (default) disables alignment.
-  align_seconds: 0
+  # Recommended for production: set this to the cron interval in seconds
+  # (e.g. 21600 for "every 6h") so every StartExecTime/EndExecTime lands
+  # on a clean UTC boundary (00:00/06:00/12:00/18:00 for 21600) instead of
+  # the exact moment the process happened to start. 0 (default) disables
+  # alignment, and query_lag_seconds is then subtracted from "now" as a
+  # fixed offset instead (see below).
+  align_seconds: 21600
+  # With align_seconds set, this is no longer a fixed offset: it's the
+  # minimum time a boundary must already be in the past before this run
+  # trusts Mimir to have scraped it. Schedule the cron with at least this
+  # much delay after each align_seconds boundary (see
+  # ai4eosc-energy-accounting.cron for a ready-to-edit "5 min past the
+  # mark" example) -- this check is then just a safety net, not something
+  # that shifts the reported timestamps. With align_seconds: 0, it's the
+  # old fixed "now minus this many seconds" margin instead.
+  query_lag_seconds: 60
 
 sender:
   type: "cim"    # "cim" to push to GreenDIGIT CIM, or "file" to write to file_path instead (testing)
