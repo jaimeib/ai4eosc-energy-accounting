@@ -31,6 +31,7 @@ import uuid
 
 from ai4eosc_energy_accounting import cim_client
 from ai4eosc_energy_accounting import config as config_mod
+from ai4eosc_energy_accounting import data_quality as data_quality_mod
 from ai4eosc_energy_accounting import file_client
 from ai4eosc_energy_accounting import mimir
 from ai4eosc_energy_accounting import pointer as pointer_mod
@@ -84,7 +85,7 @@ def _accumulate_series(metrics, result, alloc_id_label, datacenter_label, factor
                 entry["last_ts"] = ts
 
 
-def collect_metrics(client, cfg, extract_from, extract_to):
+def collect_metrics(client, cfg, extract_from, extract_to, data_quality_cfg=None):
     """Query Mimir and return per-allocation energy and sample time bounds.
 
     :returns: ``{(alloc_id, datacenter): {"energy_wh", "first_ts", "last_ts"}}``
@@ -106,12 +107,16 @@ def collect_metrics(client, cfg, extract_from, extract_to):
     ):
         LOG.debug("Querying Mimir [%s -> %s]", chunk_start, chunk_end)
         result = client.query_range(cfg.query, chunk_start, chunk_end, cfg.step_seconds)
+        if data_quality_cfg and data_quality_cfg.enabled:
+            result = data_quality_mod.clean_result(result, data_quality_cfg)
         _accumulate_series(metrics, result, cfg.alloc_id_label, cfg.datacenter_label, cpu_factor)
 
         if cfg.gpu_query:
             gpu_result = client.query_range(
                 cfg.gpu_query, chunk_start, chunk_end, cfg.step_seconds
             )
+            if data_quality_cfg and data_quality_cfg.enabled:
+                gpu_result = data_quality_mod.clean_result(gpu_result, data_quality_cfg)
             _accumulate_series(
                 metrics, gpu_result, cfg.gpu_alloc_id_label, cfg.datacenter_label, gpu_factor
             )
@@ -362,6 +367,11 @@ def run(cfg, dry_run: bool) -> int:
     extract_from = pointer_mod.read_pointer(
         cfg.pointer.file, cfg.pointer.initial_lookback_hours
     )
+    # A persisted pointer is already on the align grid (write_pointer stores the
+    # aligned window end), so this is a no-op then. It only bites on the very
+    # first run, where extract_from is `now - initial_lookback_hours`: floor it
+    # so that run's StartExecTime/EndExecTime land on clean boundaries too.
+    extract_from = _align_down(extract_from, cfg.pointer.align_seconds)
 
     if extract_from >= extract_to:
         LOG.info(
@@ -383,7 +393,9 @@ def run(cfg, dry_run: bool) -> int:
         cfg.mimir.password,
         verify_ssl=cfg.mimir.verify_ssl,
     )
-    metrics = collect_metrics(client, cfg.mimir, extract_from, extract_to)
+    metrics = collect_metrics(
+        client, cfg.mimir, extract_from, extract_to, cfg.data_quality
+    )
     records, open_allocations = build_records(
         metrics, cfg.accounting, extract_to, cfg.mimir.step_seconds
     )

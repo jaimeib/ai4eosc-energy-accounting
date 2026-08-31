@@ -102,12 +102,35 @@ class SenderConfig:
 
 
 @dataclasses.dataclass
+class DataQualityConfig:
+    # Per-series correction of out-of-magnitude power samples before they are
+    # folded into the Wh sum: a sample more than `outlier_factor` times the
+    # local level (the median of the `window` samples) on *both* sides, or a
+    # NaN/Inf, is treated as a bad measurement and overwritten from its
+    # nearest trustworthy neighbours (see data_quality.py). Requiring both
+    # sides leaves a genuine sustained ramp (microwatts -> milliwatts ->
+    # watts) alone. Only high spikes are corrected; a drop toward zero is left
+    # alone (legitimate idle period).
+    enabled: bool = True
+    outlier_factor: float = 10.0
+    # Number of samples on each side used to establish the local level a
+    # sample is compared against.
+    window: int = 5
+    # Series shorter than this are left untouched (too little context to tell a
+    # spike from a genuine level).
+    min_samples: int = 5
+
+
+@dataclasses.dataclass
 class Config:
     mimir: MimirConfig
     cim: CIMConfig
     accounting: AccountingConfig
     pointer: PointerConfig
     sender: SenderConfig
+    data_quality: DataQualityConfig = dataclasses.field(
+        default_factory=DataQualityConfig
+    )
     dry_run: bool = False
     log_level: str = "INFO"
     log_file: typing.Optional[str] = local_path("ai4eosc-energy-accounting.log")
@@ -134,6 +157,7 @@ def load_config(
     accounting_raw = raw.get("accounting", {})
     pointer_raw = raw.get("pointer", {})
     sender_raw = raw.get("sender", {})
+    data_quality_raw = raw.get("data_quality", {})
 
     mimir = MimirConfig(
         endpoint=mimir_raw["endpoint"],
@@ -188,12 +212,24 @@ def load_config(
         file_path=sender_raw.get("file_path", SenderConfig.file_path),
     )
 
+    data_quality = DataQualityConfig(
+        enabled=bool(data_quality_raw.get("enabled", DataQualityConfig.enabled)),
+        outlier_factor=float(
+            data_quality_raw.get("outlier_factor", DataQualityConfig.outlier_factor)
+        ),
+        window=int(data_quality_raw.get("window", DataQualityConfig.window)),
+        min_samples=int(
+            data_quality_raw.get("min_samples", DataQualityConfig.min_samples)
+        ),
+    )
+
     config = Config(
         mimir=mimir,
         cim=cim,
         accounting=accounting,
         pointer=pointer,
         sender=sender,
+        data_quality=data_quality,
         dry_run=bool(raw.get("dry_run", False)),
         log_level=raw.get("log_level", "INFO"),
         log_file=raw.get("log_file", Config.log_file),
