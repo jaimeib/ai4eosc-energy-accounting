@@ -10,7 +10,7 @@
 
 Sends AI4EOSC/iMagine PaaS container energy accounting records to GreenDIGIT Environmental Impact Metric Publication System (EIMPS), throught the Common Information Model (CIM) API. Designed to run every 6h via cron. It reports containers the same way [cASO](https://github.com/IFCA-Advanced-Computing/caso) reports VMs to CIM, but as Cloud **PaaS** Execution Units instead of Cloud IaaS Execution Units:
 
-This tool never talks to Nomad (the orchestrator behind the AI4EOSC/iMagine platform) directly: it only reads the container power metrics already collected in Mimir/Prometheus and exports them. This is a deliberate boundary, not an oversight, but it is also the root of the limitations called out below, since without querying Nomad itself there's no independent CPU-usage source per allocation (see `CpuDuration_s` in step 4) and no allocation-lifecycle event to know exactly when a container stopped (hence the sample-gap heuristic in step 4/6 and the *Known limitation* section).
+This tool never talks to Nomad (the orchestrator behind the AI4EOSC/iMagine platform) directly: it only reads the container power metrics already collected in Mimir/Prometheus and exports them. This is a deliberate boundary, not an oversight, but it is also the root of the limitations called out below, since without querying Nomad itself there's no independent CPU-usage source per allocation (see `CpuDuration_s` in step 5) and no allocation-lifecycle event to know exactly when a container stopped (hence the sample-gap heuristic in step 5/7 and the *Known limitation* section).
 
 |                       | VMs (cASO)               | Containers (this tool)                                                                                                                                                                                      |
 | --------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -21,8 +21,7 @@ This tool never talks to Nomad (the orchestrator behind the AI4EOSC/iMagine plat
 
 ## What it does, each run
 
-1. Reads the pointer file (last successfully-sent instant). On the very
-   first run, defaults to `now - initial_lookback_hours`.
+1. Reads the pointer file (last successfully-sent instant). On the very first run, defaults to `now - initial_lookback_hours`, floored to the `pointer.align_seconds` grid (when set) so that first run's timestamps are aligned too.
 2. Works out the window end: with `pointer.align_seconds` set (recommended,
    see `config.example.yaml`), it's the most recent aligned UTC boundary
    (e.g. 00:00/06:00/12:00/18:00 for the recommended 21600), as long as
@@ -38,19 +37,9 @@ This tool never talks to Nomad (the orchestrator behind the AI4EOSC/iMagine plat
     the window is large, to stay under Mimir's per-query point limit).
     `datacenter` is kept in the `sum by(...)` so each series stays tagged
     with the platform it belongs to (`ifca-ai4eosc` / `ifca-imagine`).
-3. For each allocation, converts its summed microwatt samples into Wh
-   (treating each sample as constant power for one `step_seconds`
-   interval), and records the timestamp of its first and last sample in
-   the window. Optionally, if `mimir.gpu_query` is configured, also queries
-   GPU power (`DCGM_FI_DEV_POWER_USAGE`, in Watts, joined against
-   `nomad_gpu_allocation_info` to attribute each GPU to a Nomad
-   `alloc_id`), converts it to Wh the same way, and adds it into the same
-   allocation's total _before_ the CPU normalization factor is applied
-   below (the factor already accounts for both CPU and GPU per cASO's
-   benchmark methodology). Disabled by default — not every deployment
-   scrapes DCGM / the GPU allocation mapper exporter; see
-   `config.example.yaml`.
-4. Builds one `EnergyRecord` per Nomad allocation:
+3. Runs a data-quality pass over each series first (`data_quality.enabled`, on by default): a sample is treated as a bad measurement when it is a `NaN`/`Inf`, or when it sits more than `data_quality.outlier_factor` times (one order of magnitude by default) above the local level (the median of the `data_quality.window` samples) on _both_ sides. Requiring both sides leaves a genuine sustained ramp (microwatts to milliwatts to watts, each level held for a while) alone, and only corrects a lone spike that the series immediately drops back down from. A bad sample is overwritten from its nearest trustworthy samples: a point in the middle of the series by the linear interpolation of its two adjacent good samples (the mean, for evenly spaced samples), a point at the very start or end by the linear trend of the two nearest good samples. Only high spikes are corrected, a sample dropping toward zero is left alone (legitimate idle period), and every correction is logged.
+4. For each allocation, converts its summed microwatt samples into Wh (treating each sample as constant power for one `step_seconds` interval), and records the timestamp of its first and last sample in the window. Optionally, if `mimir.gpu_query` is configured, also queries GPU power (`DCGM_FI_DEV_POWER_USAGE`, in Watts, joined against `nomad_gpu_allocation_info` to attribute each GPU to a Nomad `alloc_id`), converts it to Wh the same way, and adds it into the same allocation's total _before_ the CPU normalization factor is applied below (the factor already accounts for both CPU and GPU per cASO's benchmark methodology). Disabled by default, not every deployment scrapes DCGM / the GPU allocation mapper exporter; see `config.example.yaml`.
+5. Builds one `EnergyRecord` per Nomad allocation:
     - `ExecUnitID` = the allocation ID (already a UUID).
     - `StartExecTime`/`EndExecTime` = the allocation's first/last sample
       timestamps. If it ran throughout the window these are ~the window
@@ -69,7 +58,7 @@ This tool never talks to Nomad (the orchestrator behind the AI4EOSC/iMagine plat
     - `CpuDuration_s` = `WallClockTime_s` (no independent CPU-usage source
       for containers, so a single CPU-equivalent is assumed) and `Work` is
       computed the same way as cASO: `CpuDuration_s / EnergyWh`.
-5. Sends the batch via `sender.type`:
+6. Sends the batch via `sender.type`:
     - `"cim"` (default): bearer-token authenticated POST to CIM
       (`/gd-cim-api/v1/token` then `/gd-cim-api/v1/submit`, identical flow
       to cASO's `greendigit_cim` messenger).
@@ -82,7 +71,7 @@ This tool never talks to Nomad (the orchestrator behind the AI4EOSC/iMagine plat
    transient failures (connection errors, `429`/`5xx`) with backoff, so a
    brief network blip mid-run doesn't fail the whole run and wait for the
    next cron cycle.
-6. Before sending, checks which allocations the _previous_ run reported as
+7. Before sending, checks which allocations the _previous_ run reported as
    still running (`var/open_allocations.json`) but that produced zero
    samples in this run's window at all — meaning they stopped sometime
    before this window even started, without ever landing in a window that
@@ -90,7 +79,7 @@ This tool never talks to Nomad (the orchestrator behind the AI4EOSC/iMagine plat
    closing record (`ExecUnitFinished` = `1`, `EnergyWh` = `0`, both times
    set to its last known sample) so it isn't left "running" forever. See
    _Known limitation_ below.
-7. Only on success, advances the pointer file and the open-allocations
+8. Only on success, advances the pointer file and the open-allocations
    state to the window's end. A failed run leaves both untouched, so the
    same window is retried next time instead of losing data. A run with no
    matching data still advances the pointer (nothing to retry).
@@ -98,10 +87,10 @@ This tool never talks to Nomad (the orchestrator behind the AI4EOSC/iMagine plat
 ## Known limitation
 
 `ExecUnitFinished`/`Status` for a normal (non-closing) record are decided
-from that record's own window (step 4). If an allocation's very last
+from that record's own window (step 5). If an allocation's very last
 sample lands within the ~1.5-step tolerance of a window's end, that
 window reports it as `"running"` (correctly, from what it can see) and
-remembers it as open; the _next_ run then closes it via step 6 once it
+remembers it as open; the _next_ run then closes it via step 7 once it
 sees zero samples for it. The one case this still can't fully rule out:
 if that next window instead has a real scrape/collection gap (Mimir
 outage, etc.) and the allocation was actually still running the whole

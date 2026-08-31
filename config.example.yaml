@@ -83,6 +83,29 @@ sender:
   type: "cim"    # "cim" to push to GreenDIGIT CIM, or "file" to write to file_path instead (testing)
   # file_path: "/absolute/or/relative/path/to/records.jsonl"
 
+data_quality:
+  # Per-series correction of out-of-magnitude power samples before they are
+  # summed into Wh. A single bad measurement (a series that normally sits at a
+  # few watts suddenly reporting several kW, or a NaN/Inf) is detected and
+  # overwritten with a value inferred from the nearest trustworthy samples:
+  # linear interpolation of the two adjacent good samples for a point in the
+  # middle, or the linear trend of the two nearest good samples for a point at
+  # the start/end of the series. Only high spikes are corrected; a sample
+  # dropping toward zero is left alone (legitimate idle period).
+  enabled: true
+  # A sample is a bad measurement when it is more than this many times the
+  # local level (median of the window samples) on BOTH sides (10 = one order
+  # of magnitude). Requiring both sides means a real sustained ramp
+  # (microwatts to milliwatts to watts) is left alone, only a lone spike the
+  # series drops back down from is corrected.
+  outlier_factor: 10.0
+  # Number of samples on each side whose median defines the "local level".
+  # Larger = more context, but slower to react to genuine level changes.
+  window: 5
+  # Series with fewer samples than this are left untouched (too little context
+  # to tell a spike from a genuine level change).
+  min_samples: 5
+
 dry_run: false
 log_level: "INFO"
 # log_file: null   # set to null to log to stdout only instead of var/ai4eosc-energy-accounting.log

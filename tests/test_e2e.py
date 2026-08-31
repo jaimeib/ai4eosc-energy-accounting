@@ -179,6 +179,97 @@ def test_gpu_query_unset_ignores_gpu_metrics(tmp_path, mimir_server, cim_server)
     assert math.isclose(rec["EnergyWh"], expected_energy_wh, rel_tol=1e-9)
 
 
+def _spiked_build(alloc_id, sample_count=None):
+    """A 5 W series with a single 5 kW measurement error at sample index 3."""
+
+    def build(start, end):
+        values = []
+        t = start
+        i = 0
+        while t <= end:
+            values.append([t, "5000000000" if i == 3 else "5000000"])
+            t += STEP
+            i += 1
+        if sample_count is not None:
+            sample_count["n"] = len(values)
+        return [_series(alloc_id, "ifca-ai4eosc", values)]
+
+    return build
+
+
+def test_out_of_magnitude_sample_is_corrected_before_energy_sum(
+    tmp_path, mimir_server, cim_server
+):
+    alloc_id = str(uuid.uuid4())
+    sample_count = {}
+
+    mimir_server.set_window_fn(_spiked_build(alloc_id, sample_count))
+    config_path = _write_config(tmp_path, mimir_server, cim_server)
+
+    rc = main_mod.main(["--config", config_path])
+    assert rc == 0
+
+    [rec] = cim_server.payload
+    n = sample_count["n"]
+    # the spike is rewritten to its neighbours' 5 W, so every sample is 5 W
+    expected_energy_wh = n * (STEP / 3600) * 5 * 2.03
+    assert math.isclose(rec["EnergyWh"], expected_energy_wh, rel_tol=1e-9)
+
+
+def test_data_quality_disabled_lets_the_spike_through(
+    tmp_path, mimir_server, cim_server
+):
+    alloc_id = str(uuid.uuid4())
+
+    mimir_server.set_window_fn(_spiked_build(alloc_id))
+    config_path = _write_config(
+        tmp_path, mimir_server, cim_server, data_quality={"enabled": False}
+    )
+
+    rc = main_mod.main(["--config", config_path])
+    assert rc == 0
+
+    [rec] = cim_server.payload
+    # the lone 5 kW sample alone contributes far more than a clean ~5 W run
+    assert rec["EnergyWh"] > 5000 * (STEP / 3600)
+
+
+def test_first_run_fallback_start_is_floored_to_the_align_grid(
+    tmp_path, mimir_server, cim_server
+):
+    """With no pointer file yet, extract_from is `now - initial_lookback_hours`;
+    when align_seconds is set it must be floored to that grid so the first
+    run's timestamps are aligned too, not just every later run's."""
+    alloc_id = str(uuid.uuid4())
+    seen = {}
+
+    def build(start, end):
+        seen["start"] = start
+        values = []
+        t = start
+        while t <= end:
+            values.append([t, "5000000"])
+            t += STEP
+        return [_series(alloc_id, "ifca-ai4eosc", values)]
+
+    mimir_server.set_window_fn(build)
+    config_path = _write_config(
+        tmp_path,
+        mimir_server,
+        cim_server,
+        pointer={
+            "align_seconds": 600,
+            "initial_lookback_hours": 1,
+            "query_lag_seconds": 0,
+        },
+    )
+
+    rc = main_mod.main(["--config", config_path])
+    assert rc == 0
+    assert cim_server.payload is not None
+    assert seen["start"] % 600 == 0
+
+
 def test_allocation_stopped_mid_window_is_finished_and_bounded(
     tmp_path, mimir_server, cim_server
 ):
